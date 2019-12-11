@@ -21,7 +21,6 @@ from __future__ import division, print_function, unicode_literals
 import os
 import hashlib
 from tempfile import gettempdir
-
 from flask_babel import gettext as _
 
 from . import logger, comic
@@ -68,15 +67,12 @@ except ImportError as e:
     use_fb2_meta = False
 
 try:
-    from PIL import Image
+    from PIL import Image as PILImage
     from PIL import __version__ as PILversion
     use_PIL = True
 except ImportError as e:
     log.debug('cannot import Pillow, using png and webp images as cover will not work: %s', e)
-    use_generic_pdf_cover = True
     use_PIL = False
-
-
 
 __author__ = 'lemmsh'
 
@@ -97,6 +93,8 @@ def process(tmp_file_path, original_file_name, original_file_extension):
         log.warning('cannot parse metadata, using default: %s', ex)
 
     if meta and meta.title.strip() and meta.author.strip():
+        if meta.author.lower() == 'unknown':
+            meta = meta._replace(author=_(u'Unknown'))
         return meta
     else:
         return default_meta(tmp_file_path, original_file_name, original_file_extension)
@@ -107,7 +105,7 @@ def default_meta(tmp_file_path, original_file_name, original_file_extension):
         file_path=tmp_file_path,
         extension=original_file_extension,
         title=original_file_name,
-        author=u"Unknown",
+        author=_(u'Unknown'),
         cover=None,
         description="",
         tags="",
@@ -125,13 +123,14 @@ def pdf_meta(tmp_file_path, original_file_name, original_file_extension):
         doc_info = None
 
     if doc_info is not None:
-        author = doc_info.author if doc_info.author else u"Unknown"
+        author = doc_info.author if doc_info.author else u'Unknown'
         title = doc_info.title if doc_info.title else original_file_name
         subject = doc_info.subject
     else:
-        author = u"Unknown"
+        author = u'Unknown'
         title = original_file_name
         subject = ""
+
     return BookMeta(
         file_path=tmp_file_path,
         extension=original_file_extension,
@@ -149,51 +148,11 @@ def pdf_preview(tmp_file_path, tmp_dir):
     if use_generic_pdf_cover:
         return None
     else:
-        if use_PIL:
-            try:
-                input1 = PdfFileReader(open(tmp_file_path, 'rb'), strict=False)
-                page0 = input1.getPage(0)
-                xObject = page0['/Resources']['/XObject'].getObject()
-
-                for obj in xObject:
-                    if xObject[obj]['/Subtype'] == '/Image':
-                        size = (xObject[obj]['/Width'], xObject[obj]['/Height'])
-                        data = xObject[obj]._data # xObject[obj].getData()
-                        if xObject[obj]['/ColorSpace'] == '/DeviceRGB':
-                            mode = "RGB"
-                        else:
-                            mode = "P"
-                        if '/Filter' in xObject[obj]:
-                            if xObject[obj]['/Filter'] == '/FlateDecode':
-                                img = Image.frombytes(mode, size, data)
-                                cover_file_name = os.path.splitext(tmp_file_path)[0] + ".cover.png"
-                                img.save(filename=os.path.join(tmp_dir, cover_file_name))
-                                return cover_file_name
-                                # img.save(obj[1:] + ".png")
-                            elif xObject[obj]['/Filter'] == '/DCTDecode':
-                                cover_file_name = os.path.splitext(tmp_file_path)[0] + ".cover.jpg"
-                                img = open(cover_file_name, "wb")
-                                img.write(data)
-                                img.close()
-                                return cover_file_name
-                            elif xObject[obj]['/Filter'] == '/JPXDecode':
-                                cover_file_name = os.path.splitext(tmp_file_path)[0] + ".cover.jp2"
-                                img = open(cover_file_name, "wb")
-                                img.write(data)
-                                img.close()
-                                return cover_file_name
-                        else:
-                            img = Image.frombytes(mode, size, data)
-                            cover_file_name = os.path.splitext(tmp_file_path)[0] + ".cover.png"
-                            img.save(filename=os.path.join(tmp_dir, cover_file_name))
-                            return cover_file_name
-                            # img.save(obj[1:] + ".png")
-            except Exception as ex:
-                print(ex)
-
         try:
             cover_file_name = os.path.splitext(tmp_file_path)[0] + ".cover.jpg"
-            with Image(filename=tmp_file_path + "[0]", resolution=150) as img:
+            with Image() as img:
+                img.options["pdf:use-cropbox"] = "true"
+                img.read(filename=tmp_file_path + '[0]', resolution = 150)
                 img.compression_quality = 88
                 img.save(filename=os.path.join(tmp_dir, cover_file_name))
             return cover_file_name
@@ -210,24 +169,24 @@ def get_versions():
         IVersion = ImageVersion.MAGICK_VERSION
         WVersion = ImageVersion.VERSION
     else:
-        IVersion = _(u'not installed')
-        WVersion = _(u'not installed')
+        IVersion = u'not installed'
+        WVersion = u'not installed'
     if use_pdf_meta:
         PVersion='v'+PyPdfVersion
     else:
-        PVersion=_(u'not installed')
+        PVersion=u'not installed'
     if lxmlversion:
         XVersion = 'v'+'.'.join(map(str, lxmlversion))
     else:
-        XVersion = _(u'not installed')
+        XVersion = u'not installed'
     if use_PIL:
         PILVersion = 'v' + PILversion
     else:
-        PILVersion = _(u'not installed')
+        PILVersion = u'not installed'
     if comic.use_comic_meta:
-        ComicVersion = _(u'installed')
+        ComicVersion = u'installed'
     else:
-        ComicVersion = _(u'not installed')
+        ComicVersion = u'not installed'
     return {'Image Magick': IVersion,
             'PyPdf': PVersion,
             'lxml':XVersion,
@@ -241,12 +200,12 @@ def upload(uploadfile):
 
     if not os.path.isdir(tmp_dir):
         os.mkdir(tmp_dir)
-
     filename = uploadfile.filename
     filename_root, file_extension = os.path.splitext(filename)
     md5 = hashlib.md5()
     md5.update(filename.encode('utf-8'))
     tmp_file_path = os.path.join(tmp_dir, md5.hexdigest())
+    log.debug("Temporary file: %s", tmp_file_path)
     uploadfile.save(tmp_file_path)
     meta = process(tmp_file_path, filename_root, file_extension)
     return meta

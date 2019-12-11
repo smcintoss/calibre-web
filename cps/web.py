@@ -38,13 +38,14 @@ from flask import render_template, request, redirect, send_from_directory, make_
 from flask_babel import gettext as _
 from flask_login import login_user, logout_user, login_required, current_user
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.sql.expression import text, func, true, false, not_, and_
+from sqlalchemy.sql.expression import text, func, true, false, not_, and_, \
+    exists
 from werkzeug.exceptions import default_exceptions
 from werkzeug.datastructures import Headers
 from werkzeug.security import generate_password_hash, check_password_hash
 
 from . import constants, logger, isoLanguages, services, worker
-from . import searched_ids, lm, babel, db, ub, config, negociate_locale, get_locale, app
+from . import searched_ids, lm, babel, db, ub, config, get_locale, app
 from .gdriveutils import getFileFromEbooksFolder, do_gdrive_download
 from .helper import common_filters, get_search_results, fill_indexpage, speaking_language, check_valid_domain, \
         order_authors, get_typeahead, render_task_status, json_serial, get_cc_columns, \
@@ -242,8 +243,6 @@ def render_title_template(*args, **kwargs):
 
 @web.before_app_request
 def before_request():
-    # log.debug("before_request: %s %s %r", request.method, request.path, getattr(request, 'locale', None))
-    request._locale = negociate_locale()
     g.user = current_user
     g.allow_registration = config.config_public_reg
     g.allow_anonymous = config.config_anonbrowse
@@ -783,6 +782,12 @@ def get_tasks_status():
 
 # ################################### Search functions ################################################################
 
+@app.route("/reconnect")
+def reconnect():
+    db.session.close()
+    db.engine.dispose()
+    db.setup_db()
+    return json.dumps({})
 
 @web.route("/search", methods=["GET"])
 @login_required_if_no_ano
@@ -794,9 +799,9 @@ def search():
         for element in entries:
             ids.append(element.id)
         searched_ids[current_user.id] = ids
-        return render_title_template('search.html', searchterm=term, entries=entries, page="search")
+        return render_title_template('search.html', searchterm=term, entries=entries, title=_(u"Search"), page="search")
     else:
-        return render_title_template('search.html', searchterm="", page="search")
+        return render_title_template('search.html', searchterm="", title=_(u"Search"), page="search")
 
 
 @web.route("/advanced_search", methods=['GET'])
@@ -943,7 +948,7 @@ def render_read_books(page, are_read, as_xml=False, order=None):
     order = order or []
     if not config.config_read_column:
         readBooks = ub.session.query(ub.ReadBook).filter(ub.ReadBook.user_id == int(current_user.id))\
-            .filter(ub.ReadBook.is_read is True).all()
+            .filter(ub.ReadBook.is_read == True).all()
         readBookIds = [x.book_id for x in readBooks]
     else:
         try:
@@ -987,10 +992,11 @@ def get_cover(book_id):
     return get_book_cover(book_id)
 
 
-@web.route("/show/<book_id>/<book_format>")
+@web.route("/show/<int:book_id>/<book_format>", defaults={'anyname': 'None'})
+@web.route("/show/<int:book_id>/<book_format>/<anyname>")
 @login_required_if_no_ano
 @viewer_required
-def serve_book(book_id, book_format):
+def serve_book(book_id, book_format, anyname):
     book_format = book_format.split(".")[0]
     book = db.session.query(db.Books).filter(db.Books.id == book_id).first()
     data = db.session.query(db.Data).filter(db.Data.book == book.id).filter(db.Data.format == book_format.upper())\
@@ -1005,11 +1011,11 @@ def serve_book(book_id, book_format):
         return send_from_directory(os.path.join(config.config_calibre_dir, book.path), data.name + "." + book_format)
 
 
-@web.route("/download/<int:book_id>/<book_format>", defaults={'anyname': 'None'})
-@web.route("/download/<int:book_id>/<book_format>/<anyname>")
+# @web.route("/download/<int:book_id>/<book_format>", defaults={'anyname': 'None'})
+@web.route("/download/<int:book_id>/<book_format>")
 @login_required_if_no_ano
 @download_required
-def download_link(book_id, book_format, anyname):
+def download_link(book_id, book_format):
     return get_download_link(book_id, book_format)
 
 
@@ -1254,6 +1260,21 @@ def profile():
                 return render_title_template("user_edit.html", content=current_user, downloads=downloads,
                                              title=_(u"%(name)s's profile", name=current_user.nickname), page="me",
                                              registered_oauth=oauth_check, oauth_status=oauth_status)
+        if "nickname" in to_save and to_save["nickname"] != current_user.nickname:
+            # Query User nickname, if not existing, change
+            if not ub.session.query(ub.User).filter(ub.User.nickname == to_save["nickname"]).scalar():
+                current_user.nickname = to_save["nickname"]
+            else:
+                flash(_(u"This username is already taken"), category="error")
+                return render_title_template("user_edit.html",
+                                             translations=translations,
+                                             languages=languages,
+                                             new_user=0, content=current_user,
+                                             downloads=downloads,
+                                             registered_oauth=oauth_check,
+                                             title=_(u"Edit User %(nick)s",
+                                                     nick=current_user.nickname),
+                                             page="edituser")
             current_user.email = to_save["email"]
         if "show_random" in to_save and to_save["show_random"] == "on":
             current_user.random_books = 1
