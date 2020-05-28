@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 #  This file is part of the Calibre-Web (https://github.com/janeczku/calibre-web)
@@ -23,6 +22,7 @@
 
 from __future__ import division, print_function, unicode_literals
 import os
+import sys
 import hashlib
 import json
 import tempfile
@@ -39,7 +39,7 @@ try:
 except ImportError:
     pass
 
-from . import logger, gdriveutils, config, db
+from . import logger, gdriveutils, config, ub, calibre_db
 from .web import admin_required
 
 
@@ -141,8 +141,12 @@ def on_received_watch_confirmation():
                 response = gdriveutils.getChangeById(gdriveutils.Gdrive.Instance().drive, j['id'])
                 log.debug('%r', response)
                 if response:
-                    dbpath = os.path.join(config.config_calibre_dir, "metadata.db")
-                    if not response['deleted'] and response['file']['title'] == 'metadata.db' and response['file']['md5Checksum'] != hashlib.md5(dbpath):
+                    if sys.version_info < (3, 0):
+                        dbpath = os.path.join(config.config_calibre_dir, "metadata.db")
+                    else:
+                        dbpath = os.path.join(config.config_calibre_dir, "metadata.db").encode()
+                    if not response['deleted'] and response['file']['title'] == 'metadata.db' \
+                       and response['file']['md5Checksum'] != hashlib.md5(dbpath):
                         tmpDir = tempfile.gettempdir()
                         log.info('Database file updated')
                         copyfile(dbpath, os.path.join(tmpDir, "metadata.db_" + str(current_milli_time())))
@@ -151,7 +155,7 @@ def on_received_watch_confirmation():
                         log.info('Setting up new DB')
                         # prevent error on windows, as os.rename does on exisiting files
                         move(os.path.join(tmpDir, "tmp_metadata.db"), dbpath)
-                        db.setup_db(config)
+                        calibre_db.setup_db(config, ub.app_DB_path)
             except Exception as e:
                 log.exception(e)
         updateMetaData()

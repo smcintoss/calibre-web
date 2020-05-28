@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 #  This file is part of the Calibre-Web (https://github.com/janeczku/calibre-web)
@@ -81,8 +80,12 @@ def formatdate_filter(val):
         formatdate = datetime.datetime.strptime(conformed_timestamp[:15], "%Y%m%d %H%M%S")
         return format_date(formatdate, format='medium', locale=get_locale())
     except AttributeError as e:
-        log.error('Babel error: %s, Current user locale: %s, Current User: %s', e, current_user.locale, current_user.nickname)
+        log.error('Babel error: %s, Current user locale: %s, Current User: %s', e,
+                  current_user.locale,
+                  current_user.nickname
+                  )
         return formatdate
+
 
 @jinjia.app_template_filter('formatdateinput')
 def format_date_input(val):
@@ -108,10 +111,3 @@ def timestamptodate(date, fmt=None):
 @jinjia.app_template_filter('yesno')
 def yesno(value, yes, no):
     return yes if value else no
-
-
-'''@jinjia.app_template_filter('canread')
-def canread(ext):
-    if isinstance(ext, db.Data):
-        ext = ext.format
-    return ext.lower() in EXTENSIONS_READER'''

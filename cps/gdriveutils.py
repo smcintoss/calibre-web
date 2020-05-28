@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
 #  This file is part of the Calibre-Web (https://github.com/janeczku/calibre-web)
@@ -47,6 +46,10 @@ CREDENTIALS    = os.path.join(_CONFIG_DIR, 'gdrive_credentials')
 CLIENT_SECRETS = os.path.join(_CONFIG_DIR, 'client_secrets.json')
 
 log = logger.create()
+if gdrive_support:
+    logger.get('googleapiclient.discovery_cache').setLevel(logger.logging.ERROR)
+    if not logger.is_debug_enabled():
+        logger.get('googleapiclient.discovery').setLevel(logger.logging.ERROR)
 
 
 class Singleton:
